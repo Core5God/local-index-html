@@ -1,0 +1,1983 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>编排工作流，让内容自动生成</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#0B0F19;--card-bg:#1a1e2a;--card-header:#2a2e3a;
+    --line-idle:#3a5a3a;--line-active:#7cff36;
+    --dot-idle:#5a8a5a;--dot-active:#7cff36;
+    --text-idle:#94A3B8;--text-active:#FFFFFF;
+  }
+  html{scroll-behavior:auto;overflow:hidden;height:100%;}
+  body{
+    background:var(--bg);height:100%;
+    overflow:hidden;font-family:'Space Grotesk','Inter',-apple-system,sans-serif;
+  }
+  .page-container{height:100vh;width:100%;position:relative;overflow:hidden;}
+  .page{
+    position:absolute;inset:0;width:100%;height:100%;
+    display:flex;align-items:center;justify-content:center;
+    transition:transform .8s cubic-bezier(.77,0,.175,1),opacity .8s;
+    transform:translateY(100%);opacity:0;
+  }
+  .page[data-page="0"]{z-index:4;transform:translateY(0);opacity:1;}
+  .page[data-page="1"]{z-index:3;}
+  .page[data-page="2"]{z-index:2;}
+  .page[data-page="3"]{z-index:1;}
+  .page[data-page="4"]{z-index:0;}
+  .page-container.at-page-1 .page[data-page="0"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-1 .page[data-page="1"]{transform:translateY(0);opacity:1;}
+  .page-container.at-page-1 .page[data-page="2"]{transform:translateY(100%);opacity:0;}
+  .page-container.at-page-1 .page[data-page="3"]{transform:translateY(100%);opacity:0;}
+  .page-container.at-page-1 .page[data-page="4"]{transform:translateY(100%);opacity:0;}
+  .page-container.at-page-2 .page[data-page="0"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-2 .page[data-page="1"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-2 .page[data-page="2"]{transform:translateY(0);opacity:1;}
+  .page-container.at-page-2 .page[data-page="3"]{transform:translateY(100%);opacity:0;}
+  .page-container.at-page-2 .page[data-page="4"]{transform:translateY(100%);opacity:0;}
+  .page-container.at-page-3 .page[data-page="0"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-3 .page[data-page="1"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-3 .page[data-page="2"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-3 .page[data-page="3"]{transform:translateY(0);opacity:1;}
+  .page-container.at-page-3 .page[data-page="4"]{transform:translateY(100%);opacity:0;}
+  .page-container.at-page-4 .page[data-page="0"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-4 .page[data-page="1"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-4 .page[data-page="2"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-4 .page[data-page="3"]{transform:translateY(-100%);opacity:0;}
+  .page-container.at-page-4 .page[data-page="4"]{transform:translateY(0);opacity:1;}
+  .grid-bg{
+    position:fixed;inset:0;pointer-events:none;z-index:0;
+    --grid:18px;
+    background-image:
+      linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px),
+      linear-gradient(rgba(255,255,255,.08) 1.5px,transparent 1.5px),
+      linear-gradient(90deg,rgba(255,255,255,.08) 1.5px,transparent 1.5px);
+    background-size:var(--grid) var(--grid),var(--grid) var(--grid),
+      calc(var(--grid)*10) calc(var(--grid)*10),calc(var(--grid)*10) calc(var(--grid)*10);
+    -webkit-mask-image:radial-gradient(circle 320px at var(--mx,-999px) var(--my,-999px),black,transparent 70%);
+    mask-image:radial-gradient(circle 320px at var(--mx,-999px) var(--my,-999px),black,transparent 70%);
+  }
+  .flashlight{
+    position:fixed;inset:0;pointer-events:none;z-index:1;
+    background:radial-gradient(circle 400px at var(--mx,-999px) var(--my,-999px),rgba(0,240,255,.10),transparent 70%);
+  }
+  .main{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:22px;padding:20px 0;justify-content:center;height:100%;}
+
+  .hero-title{
+    font-size:78px;font-weight:700;letter-spacing:-0.02em;color:#E2E8F0;
+    text-align:center;line-height:1.3;margin-top:12vh;
+  }
+  .hero-title .accent{
+    background:linear-gradient(90deg,#F4A261,#E879A0,#C084FC);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+    font-style:normal;font-weight:700;
+  }
+
+  .tool-icons{display:flex;gap:34px;align-items:center;}
+  .tool-icon{
+    width:106px;height:106px;border-radius:28px;overflow:hidden;
+    background:rgba(255,255,255,.06);border:1.5px solid rgba(255,255,255,.1);
+    display:flex;align-items:center;justify-content:center;
+    transition:border-color .3s,box-shadow .3s,transform .3s;
+  }
+  .tool-icon:hover{border-color:rgba(0,240,255,.4);box-shadow:0 0 28px rgba(0,240,255,.25),0 0 56px rgba(0,240,255,.1);transform:scale(1.08);}
+  .tool-icon img{width:68%;height:68%;object-fit:contain;}
+  .tool-icon.fill-img img{width:100%;height:100%;object-fit:cover;border-radius:28px;}
+  .tool-icon.fill-bg{background:#ffffff;}
+
+  .cards-area{position:relative;width:1100px;height:420px;}
+  .cards-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:0;}
+  .conn-path{fill:none;stroke:var(--line-idle);stroke-width:2;stroke-linecap:round;transition:stroke .4s;}
+  .conn-path.active{stroke:var(--line-active);filter:drop-shadow(0 0 3px rgba(124,255,54,.3));}
+  .trail-path{fill:none;stroke:var(--line-active);stroke-width:3;stroke-linecap:round;opacity:0;}
+  .beam-path{fill:none;stroke:none;stroke-width:0;opacity:0;pointer-events:none;}
+
+  .card{
+    position:absolute;width:180px;border-radius:12px;overflow:visible;
+    background:var(--card-bg);border:1.5px solid rgba(255,255,255,.06);
+    box-shadow:0 4px 24px rgba(0,0,0,.3);z-index:1;cursor:grab;user-select:none;
+    transition:border-color .4s,box-shadow .4s;
+  }
+  .card.dragging{cursor:grabbing;z-index:10;}
+  .card.active{border-color:rgba(124,255,54,.2);box-shadow:0 0 24px rgba(124,255,54,.06);}
+  .card-header{
+    background:var(--card-header);padding:6px 12px;font-size:12px;color:var(--text-idle);font-weight:500;
+    border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:6px;
+    border-radius:12px 12px 0 0;
+  }
+  .card-header-dot{width:6px;height:6px;border-radius:50%;background:var(--dot-idle);transition:background .35s;}
+  .card.active .card-header-dot{background:var(--dot-active);}
+  .card-body{padding:24px 16px;display:flex;align-items:center;justify-content:center;min-height:100px;}
+  .card-text{
+    font-size:36px;font-weight:600;color:var(--text-idle);letter-spacing:-0.02em;
+    transition:color .35s,text-shadow .35s;white-space:nowrap;pointer-events:none;
+  }
+  .card.active .card-text{color:var(--text-active);}
+  .card.finale.active .card-text{text-shadow:0 0 16px rgba(124,255,54,.3),0 0 40px rgba(124,255,54,.12);}
+
+  .port{
+    position:absolute;width:12px;height:12px;border-radius:50%;
+    background:var(--dot-idle);border:2px solid var(--card-bg);
+    transition:background .35s,box-shadow .35s;z-index:2;
+  }
+  .port-left{left:-6px;top:50%;}
+  .port-right{right:-6px;top:50%;}
+  .card.active .port{background:var(--dot-active);box-shadow:0 0 6px var(--dot-active);}
+
+  .ripple{
+    position:absolute;top:50%;left:50%;width:0;height:0;border-radius:50%;
+    background:radial-gradient(circle,rgba(124,255,54,.12),transparent 70%);
+    transform:translate(-50%,-50%);pointer-events:none;opacity:0;
+  }
+  .ripple.burst{animation:rippleBurst 1.6s ease-out forwards;}
+  @keyframes rippleBurst{0%{width:0;height:0;opacity:.6}100%{width:400px;height:400px;opacity:0}}
+  .card.breathe{animation:breathe .6s ease-in-out;}
+  @keyframes breathe{0%{box-shadow:0 0 24px rgba(124,255,54,.06)}40%{box-shadow:0 0 40px rgba(124,255,54,.12)}100%{box-shadow:0 0 24px rgba(124,255,54,.06)}}
+
+  /* === Page 2 === */
+  .p2-content{
+    position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;
+    gap:clamp(24px,4vh,52px);padding:clamp(20px,4vh,48px) clamp(24px,5vw,72px);
+    width:100%;max-width:1400px;height:100%;justify-content:center;
+  }
+  .p2-header{text-align:center;}
+  .p2-title{
+    font-size:clamp(32px,4.8vw,78px);font-weight:700;color:#E2E8F0;letter-spacing:-0.02em;line-height:1.3;
+  }
+  .p2-title .accent{
+    background:linear-gradient(90deg,#F4A261,#E879A0,#C084FC);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  }
+  .p2-subtitle{
+    font-size:clamp(14px,1.4vw,20px);color:#94A3B8;line-height:1.7;margin-top:clamp(8px,1.2vh,16px);max-width:900px;margin-left:auto;margin-right:auto;
+  }
+  .p2-cards{display:flex;gap:clamp(16px,2vw,32px);width:100%;position:relative;}
+  .p2-card{
+    flex:1;border-radius:clamp(14px,1.4vw,22px);perspective:800px;cursor:pointer;min-width:0;
+    transition:transform .5s cubic-bezier(.16,1,.3,1);
+  }
+  .p2-card-inner{
+    position:relative;min-height:clamp(260px,32vh,440px);
+    transition:transform .55s cubic-bezier(.4,.0,.2,1);
+    transform-style:preserve-3d;
+  }
+  .p2-card.flipped .p2-card-inner{transform:rotateY(180deg);}
+  .p2-card{
+    transition:transform .48s cubic-bezier(.4,.0,.2,1),opacity .4s ease,flex .4s ease;
+    transform:translate(0,0);opacity:1;
+  }
+  .p2-card.slide-away{
+    opacity:0;transform:scale(.94);pointer-events:none;
+    transition:transform .35s cubic-bezier(.4,.0,.2,1),opacity .3s ease;
+  }
+  .p2-card.slide-to-pos{
+    transition:transform .48s cubic-bezier(.4,.0,.2,1),opacity .4s ease;
+  }
+  .p2-card.returning-card{
+    animation:cardReturn .42s cubic-bezier(.4,.0,.2,1) both;
+  }
+  @keyframes cardReturn{
+    0%{opacity:0;transform:scale(.96);}
+    100%{opacity:1;transform:scale(1);}
+  }
+  .p2-card-face{
+    position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;
+    border-radius:clamp(14px,1.4vw,22px);padding:clamp(20px,2.4vw,38px) clamp(18px,2vw,32px);display:flex;flex-direction:column;gap:clamp(10px,1.2vw,20px);
+    background:var(--card-bg);border:1.5px solid rgba(255,255,255,.06);
+    box-shadow:0 4px 24px rgba(0,0,0,.3);
+    transition:border-color .3s ease,box-shadow .3s ease;
+  }
+  .p2-card-front{}
+  .p2-card-back{
+    transform:rotateY(180deg);
+    border-color:rgba(0,240,255,.15);
+    background:linear-gradient(160deg,rgba(0,24,48,.95),rgba(16,20,32,.98));
+  }
+  .p2-card-icon{font-size:clamp(28px,3vw,44px);line-height:1;}
+  .p2-card-title{font-size:clamp(16px,1.6vw,24px);font-weight:700;color:#E2E8F0;line-height:1.3;}
+  .p2-card-label{
+    display:inline-flex;align-items:center;gap:6px;font-size:clamp(12px,1vw,15px);font-weight:600;
+    padding:clamp(4px,.4vw,6px) clamp(10px,1vw,14px);border-radius:6px;width:fit-content;
+  }
+  .p2-card-label.pain{background:rgba(239,68,68,.12);color:#f87171;}
+  .p2-card-label.gain{background:rgba(52,211,153,.12);color:#34d399;}
+  .p2-card-desc{font-size:clamp(13px,1.2vw,17px);color:#94A3B8;line-height:1.7;}
+  .p2-card-desc strong{color:#E2E8F0;}
+  .p2-card-hint{
+    position:absolute;bottom:clamp(6px,1vh,14px);left:0;right:0;text-align:center;
+    font-size:clamp(10px,.8vw,12px);color:rgba(255,255,255,.18);transition:opacity .3s;
+  }
+  .p2-card:not(.flipped):not(.slide-away):not(.animating):hover .p2-card-face.p2-card-front{
+    border-color:rgba(0,240,255,.5);
+    box-shadow:0 0 24px rgba(0,240,255,.2),0 0 48px rgba(0,240,255,.08),0 4px 24px rgba(0,0,0,.3);
+  }
+  .p2-card:not(.flipped):not(.slide-away):not(.animating):hover{
+    animation:cardShake 1.8s ease-in-out infinite;
+  }
+  @keyframes cardShake{
+    0%,100%{transform:translate(0,0) rotate(0);}
+    15%{transform:translate(-2px,-1px) rotate(-.4deg);}
+    30%{transform:translate(2px,1px) rotate(.4deg);}
+    45%{transform:translate(-1px,1px) rotate(-.2deg);}
+    60%{transform:translate(1px,-1px) rotate(.2deg);}
+    75%{transform:translate(0,0) rotate(0);}
+  }
+  .p2-card:not(.flipped):not(.slide-away):not(.animating)::before{
+    content:'';position:absolute;inset:-2px;border-radius:inherit;z-index:-1;
+    background:conic-gradient(from var(--glow-angle,0deg),transparent 40%,rgba(0,240,255,.4) 50%,transparent 60%);
+    opacity:0;transition:opacity .35s;
+  }
+  .p2-card:not(.flipped):not(.slide-away):not(.animating):hover::before{
+    opacity:1;animation:glowSpin 2.5s linear infinite;
+  }
+  @keyframes glowSpin{to{--glow-angle:360deg;}}
+  @property --glow-angle{syntax:'<angle>';initial-value:0deg;inherits:false;}
+  .p2-card:hover .p2-card-hint{opacity:0;}
+  .p2-card.flipped .p2-card-hint{opacity:0;}
+  .p2-bottom{text-align:center;color:#64748B;font-size:clamp(13px,1.2vw,17px);font-style:italic;}
+
+  /* Showcase panels */
+  .p2-showcase{
+    position:absolute;top:0;bottom:0;right:0;
+    display:none;align-items:center;justify-content:center;
+    opacity:0;transition:opacity .4s ease;
+  }
+  .p2-cards.has-active .p2-showcase{display:flex;opacity:1;}
+  .p2-showcase-panel{display:none;width:100%;height:100%;align-items:center;justify-content:center;}
+  .p2-showcase-panel.active{display:flex;}
+
+  /* Panel 1: floating gallery */
+  .showcase-gallery{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;align-items:center;perspective:600px;}
+  .showcase-thumb{
+    width:120px;height:160px;border-radius:14px;
+    background:linear-gradient(135deg,var(--t1,#1e293b),var(--t2,#334155));
+    border:1.5px solid rgba(255,255,255,.08);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    animation:thumbFloat var(--dur,3s) ease-in-out infinite alternate;
+    animation-delay:var(--delay,0s);
+    box-shadow:0 8px 32px rgba(0,0,0,.3);
+  }
+  .showcase-thumb .thumb-icon{font-size:32px;}
+  .showcase-thumb .thumb-bar{width:60%;height:6px;border-radius:3px;background:rgba(255,255,255,.12);}
+  .showcase-thumb .thumb-bar.colored{background:linear-gradient(90deg,var(--t1),var(--t2));opacity:.6;}
+  @keyframes thumbFloat{0%{transform:translateY(0) rotateX(2deg)}100%{transform:translateY(-12px) rotateX(-2deg)}}
+
+  /* Panel 2: prompt to image */
+  .showcase-prompt{display:flex;flex-direction:column;align-items:center;gap:24px;width:100%;}
+  .prompt-box{
+    background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:12px;
+    padding:16px 24px;font-size:14px;color:#94A3B8;font-family:'Space Grotesk',monospace;
+    max-width:400px;width:100%;position:relative;overflow:hidden;
+  }
+  .prompt-cursor{display:inline-block;width:2px;height:1em;background:#7cff36;animation:blink 1s step-end infinite;vertical-align:text-bottom;margin-left:2px;}
+  @keyframes blink{50%{opacity:0}}
+  .prompt-arrow{font-size:28px;color:rgba(124,255,54,.5);animation:arrowPulse 1.5s ease-in-out infinite;}
+  @keyframes arrowPulse{0%,100%{transform:translateY(0);opacity:.5}50%{transform:translateY(6px);opacity:1}}
+  .prompt-result{
+    width:200px;height:200px;border-radius:18px;
+    background:linear-gradient(135deg,#1a1040,#2d1b69,#4c1d95);
+    border:1.5px solid rgba(192,132,252,.2);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 40px rgba(192,132,252,.15);
+    animation:resultGlow 2s ease-in-out infinite alternate;
+  }
+  .prompt-result .result-icon{font-size:56px;}
+  @keyframes resultGlow{0%{box-shadow:0 0 20px rgba(192,132,252,.1)}100%{box-shadow:0 0 50px rgba(192,132,252,.25)}}
+
+  /* Panel 3: assembly line */
+  .showcase-line{width:100%;overflow:hidden;position:relative;height:200px;}
+  .line-track{
+    display:flex;gap:20px;position:absolute;top:50%;transform:translateY(-50%);
+    animation:lineScroll 17s linear infinite;
+  }
+  .line-item{
+    flex-shrink:0;width:140px;height:140px;border-radius:16px;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;
+    border:1.5px solid rgba(255,255,255,.06);
+    box-shadow:0 4px 20px rgba(0,0,0,.25);
+  }
+  .line-item .line-icon{font-size:36px;}
+  .line-item .line-label{font-size:11px;color:rgba(255,255,255,.3);font-weight:500;}
+  @keyframes lineScroll{0%{transform:translateY(-50%) translateX(0)}100%{transform:translateY(-50%) translateX(-50%)}}
+  .p2-bottom span{color:#94A3B8;}
+
+  /* === Responsive === */
+  @media(max-width:768px){
+    .p2-cards{flex-direction:column;gap:16px;}
+    .p2-card-inner{min-height:220px;}
+    .p2-title{font-size:clamp(26px,7vw,40px);}
+    .p2-subtitle{font-size:15px;}
+  }
+  @media(max-height:700px){
+    .p2-content{gap:clamp(12px,2vh,24px);}
+    .p2-card-inner{min-height:clamp(200px,26vh,300px);}
+    .p2-card-face{padding:clamp(14px,1.8vw,24px) clamp(12px,1.4vw,20px);gap:clamp(8px,1vw,14px);}
+  }
+  @media(min-width:1600px){
+    .p2-content{max-width:1440px;}
+    .p2-title{font-size:78px;}
+  }
+
+  /* === Page 3: Node Canvas === */
+  .p3-content{
+    position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;
+    width:100%;max-width:1400px;height:100%;padding:clamp(32px,5vh,60px) clamp(24px,4vw,60px) 0;
+  }
+  .p3-header{text-align:center;margin-top:clamp(80px,12vh,160px);margin-bottom:clamp(12px,2vh,28px);}
+  .p3-title{
+    font-size:clamp(32px,4.8vw,78px);font-weight:700;color:#E2E8F0;letter-spacing:-0.02em;line-height:1.3;
+  }
+  .p3-title .accent{
+    background:linear-gradient(90deg,#F4A261,#E879A0,#C084FC);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  }
+  .p3-toggle{
+    display:flex;gap:0;background:rgba(255,255,255,.06);border-radius:10px;overflow:hidden;
+    border:1px solid rgba(255,255,255,.08);
+  }
+  .p3-toggle-btn{
+    padding:8px 28px;font-size:14px;font-weight:600;color:#64748B;cursor:pointer;
+    transition:all .3s;border:none;background:none;font-family:inherit;
+  }
+  .p3-toggle-btn.active{background:rgba(124,255,54,.12);color:#7cff36;}
+  .p3-start-btn{
+    padding:8px 28px;font-size:14px;font-weight:600;cursor:pointer;
+    border:1.5px solid rgba(124,255,54,.4);background:rgba(124,255,54,.08);color:#7cff36;
+    border-radius:10px;font-family:inherit;margin-left:16px;
+    transition:all .3s;
+  }
+  .p3-start-btn:hover{background:rgba(124,255,54,.18);box-shadow:0 0 16px rgba(124,255,54,.2);}
+  .p3-start-btn.running{opacity:.5;pointer-events:none;}
+  .p3-start-btn.replay{border-color:rgba(54,180,255,.4);background:rgba(54,180,255,.08);color:#36b4ff;}
+  .p3-start-btn.replay:hover{background:rgba(54,180,255,.18);box-shadow:0 0 16px rgba(54,180,255,.2);}
+  .p3-canvas{
+    position:relative;flex:1;width:100%;max-width:1200px;
+  }
+  .p3-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:0;}
+  .p3-conn{fill:none;stroke:var(--line-idle);stroke-width:2;stroke-linecap:round;transition:stroke .4s;}
+  .p3-conn.active{stroke:var(--line-active);filter:drop-shadow(0 0 3px rgba(124,255,54,.3));}
+  .p3-trail{fill:none;stroke:var(--line-active);stroke-width:3;stroke-linecap:round;opacity:0;}
+
+  .p3-node{
+    position:absolute;width:280px;border-radius:12px;overflow:visible;
+    background:var(--card-bg);border:1.5px solid rgba(255,255,255,.06);
+    box-shadow:0 4px 24px rgba(0,0,0,.3);z-index:1;cursor:grab;user-select:none;
+    transition:border-color .4s,box-shadow .4s;
+  }
+  .p3-node.dragging{cursor:grabbing;z-index:10;}
+  .p3-node.active{border-color:rgba(124,255,54,.2);box-shadow:0 0 24px rgba(124,255,54,.06);}
+  .p3-node-header{
+    background:var(--card-header);padding:8px 14px;font-size:12px;color:var(--text-idle);font-weight:500;
+    border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:8px;
+    border-radius:12px 12px 0 0;
+  }
+  .p3-node-header .hdr-dot{width:6px;height:6px;border-radius:50%;background:var(--dot-idle);transition:background .35s;}
+  .p3-node.active .hdr-dot{background:var(--dot-active);}
+  .p3-node-header .hdr-icon{width:16px;height:16px;opacity:.5;margin-left:auto;}
+  .p3-node-body{padding:16px;min-height:60px;}
+  .p3-node-body .node-text{
+    font-size:13px;color:var(--text-idle);line-height:1.6;transition:color .35s;
+  }
+  .p3-node.active .node-text{color:var(--text-active);}
+  .p3-node-body .node-select{
+    display:flex;gap:8px;flex-wrap:wrap;
+  }
+  .p3-node-body .fake-select{
+    padding:6px 14px;border-radius:6px;font-size:12px;font-weight:500;
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94A3B8;
+  }
+  .p3-node-body .node-img{
+    width:100%;border-radius:8px;object-fit:cover;max-height:140px;
+  }
+  .p3-port{
+    position:absolute;width:12px;height:12px;border-radius:50%;
+    background:var(--dot-idle);border:2px solid var(--card-bg);
+    transition:background .35s,box-shadow .35s;z-index:2;
+  }
+  .p3-port-l{left:-6px;top:50%;}
+  .p3-port-r{right:-6px;top:50%;}
+  .p3-node.active .p3-port{background:var(--dot-active);box-shadow:0 0 6px var(--dot-active);}
+  .p3-node.breathe{animation:breathe .6s ease-in-out;}
+  .p3-node.finale.active .node-img{box-shadow:0 0 20px rgba(124,255,54,.15);}
+
+  /* Node 3 (Model) text shimmer effect */
+  .node-text-char{display:inline;transition:color .3s,text-shadow .3s,opacity .25s;}
+  .node-text-char.shimmer{color:#7cff36;text-shadow:0 0 8px rgba(124,255,54,.5);}
+  .node-text-char.done{color:var(--text-active);}
+
+  /* Node 4 (Database) paper-pull effect */
+  .node-img-wrap{position:relative;overflow:hidden;border-radius:8px;min-height:100px;}
+  .node-img-wrap .node-img{position:relative;z-index:2;opacity:0;transform:translateY(30px);transition:none;}
+  .node-img-wrap .node-img.pulled{animation:imgPull .8s cubic-bezier(.22,1,.36,1) forwards;}
+  .paper-stack{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;gap:4px;padding:8px;opacity:0;transition:opacity .3s;}
+  .paper-stack.visible{opacity:1;}
+  .paper-sheet{
+    flex:1;border-radius:4px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.06);
+    transition:transform .4s,opacity .4s;
+  }
+  .paper-stack.scatter .paper-sheet:nth-child(1){transform:translateX(-20px) rotate(-3deg);opacity:0;}
+  .paper-stack.scatter .paper-sheet:nth-child(2){transform:translateX(15px) rotate(2deg);opacity:0;}
+  .paper-stack.scatter .paper-sheet:nth-child(3){transform:translateX(-10px) rotate(1deg);opacity:0;}
+  .paper-stack.scatter .paper-sheet:nth-child(4){transform:translateX(20px) rotate(-2deg);opacity:0;}
+  @keyframes imgPull{
+    0%{opacity:0;transform:translateY(30px);}
+    40%{opacity:1;}
+    100%{opacity:1;transform:translateY(0);}
+  }
+
+  /* Node 5 (Output) image reveal */
+  .node-img-reveal{position:relative;overflow:hidden;border-radius:8px;min-height:100px;}
+  .node-img-reveal .node-img{opacity:0;transform:scale(.85);filter:blur(8px);transition:none;}
+  .node-img-reveal .node-img.revealed{animation:imgReveal 1s cubic-bezier(.22,1,.36,1) forwards;}
+  @keyframes imgReveal{
+    0%{opacity:0;transform:scale(.85);filter:blur(8px);}
+    50%{opacity:1;filter:blur(3px);}
+    100%{opacity:1;transform:scale(1);filter:blur(0);}
+  }
+  .p3-ripple{
+    position:absolute;top:50%;left:50%;width:0;height:0;border-radius:50%;
+    background:radial-gradient(circle,rgba(124,255,54,.12),transparent 70%);
+    transform:translate(-50%,-50%);pointer-events:none;opacity:0;
+  }
+  .p3-ripple.burst{animation:rippleBurst 1.6s ease-out forwards;}
+
+  /* === Page 3: Text workflow nodes === */
+  .p3-canvas.mode-txt .p3-node[data-nidx],
+  .p3-canvas.mode-txt .p3-svg{display:none;}
+  .p3-canvas.mode-img .p3-txt-node,
+  .p3-canvas.mode-img .p3-txt-svg{display:none;}
+
+  .p3-txt-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:0;}
+  .p3-txt-node{
+    position:absolute;width:280px;border-radius:12px;overflow:visible;
+    background:var(--card-bg);border:1.5px solid rgba(255,255,255,.06);
+    box-shadow:0 4px 24px rgba(0,0,0,.3);z-index:1;cursor:grab;user-select:none;
+    transition:border-color .4s,box-shadow .4s,min-height .3s ease;
+  }
+  .p3-txt-node.dragging{cursor:grabbing;z-index:10;}
+  .p3-txt-node.active{border-color:rgba(124,255,54,.2);box-shadow:0 0 24px rgba(124,255,54,.06);}
+  .p3-txt-node .p3-node-header .hdr-dot{transition:background .35s;}
+  .p3-txt-node.active .hdr-dot{background:var(--dot-active);}
+  .p3-txt-node.active .node-text{color:var(--text-active);}
+  .p3-txt-node .p3-port{
+    position:absolute;width:12px;height:12px;border-radius:50%;
+    background:var(--dot-idle);border:2px solid var(--card-bg);
+    transition:background .35s,box-shadow .35s;z-index:2;
+  }
+  .p3-txt-node.active .p3-port{background:var(--dot-active);box-shadow:0 0 6px var(--dot-active);}
+  .p3-txt-node.breathe{animation:breathe .6s ease-in-out;}
+
+  /* txt node 5 output typewriter */
+  .txt-output-text{font-size:12px;color:var(--text-idle);line-height:1.7;max-height:160px;overflow:hidden;}
+  .txt-output-cursor{display:inline-block;width:2px;height:1em;background:#7cff36;animation:blink 1s step-end infinite;vertical-align:text-bottom;margin-left:1px;}
+
+  /* Radar scan animation for News card */
+  .radar-wrap{position:relative;width:100%;height:60px;display:flex;align-items:center;justify-content:center;}
+  .radar-ring{position:absolute;width:50px;height:50px;border-radius:50%;border:1.5px solid rgba(124,255,54,.15);}
+  .radar-ring:nth-child(2){width:36px;height:36px;}
+  .radar-ring:nth-child(3){width:22px;height:22px;}
+  .radar-sweep{position:absolute;width:50px;height:50px;border-radius:50%;overflow:hidden;animation:radarSpin 1.2s linear infinite;}
+  .radar-sweep::before{content:'';position:absolute;top:0;left:50%;width:50%;height:50%;transform-origin:bottom left;background:conic-gradient(from 0deg,transparent,rgba(124,255,54,.35));border-radius:0 100% 0 0;}
+  .radar-dot{position:absolute;width:5px;height:5px;border-radius:50%;background:#7cff36;opacity:0;}
+  .radar-dot.blink{animation:radarBlink .6s ease-out forwards;}
+  @keyframes radarSpin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+  @keyframes radarBlink{0%{opacity:0;transform:scale(.5);}50%{opacity:1;transform:scale(1.2);}100%{opacity:.6;transform:scale(1);}}
+
+  /* === Page 4: Data === */
+  .p4-content{
+    position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;width:100%;max-width:1200px;height:100%;
+    padding:0 clamp(24px,5vw,80px);gap:clamp(48px,8vh,100px);
+  }
+  .p4-header{text-align:center;opacity:0;transform:translateY(30px);}
+  .p4-header.visible{animation:p4FadeUp .8s cubic-bezier(.22,1,.36,1) forwards;}
+  .p4-title{
+    font-size:clamp(32px,4.8vw,78px);font-weight:700;color:#E2E8F0;letter-spacing:-0.02em;line-height:1.3;
+  }
+  .p4-title .accent{
+    background:linear-gradient(90deg,#F4A261,#E879A0,#C084FC);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  }
+  .p4-subtitle{
+    font-size:clamp(14px,1.4vw,20px);color:#94A3B8;line-height:1.7;margin-top:clamp(8px,1.2vh,16px);
+    max-width:900px;margin-left:auto;margin-right:auto;
+  }
+  .p4-grid{
+    display:flex;gap:clamp(32px,4vw,80px);width:100%;justify-content:center;
+  }
+  .p4-col{
+    width:clamp(260px,24vw,380px);flex:0 0 auto;text-align:center;
+    opacity:0;transform:translateY(40px);
+  }
+  .p4-col.visible{animation:p4FadeUp .8s cubic-bezier(.22,1,.36,1) forwards;}
+  .p4-number{
+    font-size:clamp(56px,8vw,120px);font-weight:700;color:#FFFFFF;
+    letter-spacing:-0.03em;line-height:1;font-variant-numeric:tabular-nums;
+    font-family:'Space Grotesk',sans-serif;
+    width:100%;
+    display:flex;align-items:center;justify-content:center;
+    text-shadow:0 0 8px rgba(0,240,255,.25),0 0 20px rgba(0,240,255,.18),0 0 50px rgba(0,240,255,.1),0 0 90px rgba(0,240,255,.05);
+    animation:p4NumFloat 3.5s ease-in-out infinite;
+  }
+  .p4-col:nth-child(1) .p4-number{animation-delay:0s;}
+  .p4-col:nth-child(2) .p4-number{animation-delay:-1.2s;}
+  .p4-col:nth-child(3) .p4-number{animation-delay:-2.4s;}
+  @keyframes p4NumFloat{
+    0%,100%{transform:translateY(0);text-shadow:0 0 8px rgba(0,240,255,.25),0 0 20px rgba(0,240,255,.18),0 0 50px rgba(0,240,255,.1),0 0 90px rgba(0,240,255,.05);}
+    50%{transform:translateY(-6px);text-shadow:0 0 12px rgba(0,240,255,.35),0 0 28px rgba(0,240,255,.22),0 0 60px rgba(0,240,255,.12),0 0 100px rgba(0,240,255,.06);}
+  }
+  .p4-label{
+    font-size:clamp(16px,1.6vw,24px);font-weight:600;color:#E2E8F0;
+    margin-top:clamp(8px,1.2vh,16px);letter-spacing:0.02em;
+  }
+  .p4-desc{
+    font-size:clamp(13px,1.1vw,16px);color:#64748B;line-height:1.8;
+    margin-top:clamp(8px,1.2vh,16px);
+  }
+  @keyframes p4FadeUp{
+    from{opacity:0;transform:translateY(30px);}
+    to{opacity:1;transform:translateY(0);}
+  }
+
+  /* === Page 5: Waterfall Gallery === */
+  .p5-content{
+    position:relative;z-index:2;display:flex;flex-direction:column;
+    width:100%;height:100%;overflow:hidden;
+  }
+  .p5-header{
+    text-align:center;padding-top:clamp(40px,6vh,80px);padding-bottom:clamp(16px,2vh,32px);
+    opacity:0;transform:translateY(30px);flex-shrink:0;
+  }
+  .p5-header.visible{animation:p4FadeUp .8s cubic-bezier(.22,1,.36,1) forwards;}
+  .p5-title{
+    font-size:clamp(32px,4.8vw,78px);font-weight:700;color:#E2E8F0;letter-spacing:-0.02em;line-height:1.3;
+  }
+  .p5-title .accent{
+    background:linear-gradient(90deg,#F4A261,#E879A0,#C084FC);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  }
+  .p5-waterfall{
+    flex:1;position:relative;display:flex;gap:clamp(8px,1vw,16px);
+    padding:0 clamp(12px,2vw,32px);overflow:hidden;width:100%;box-sizing:border-box;
+  }
+  .p5-waterfall::before,.p5-waterfall::after{
+    content:'';position:absolute;left:0;right:0;height:28%;z-index:10;pointer-events:none;
+  }
+  .p5-waterfall::before{top:0;background:linear-gradient(to bottom,var(--bg) 0%,transparent 100%);}
+  .p5-waterfall::after{bottom:0;background:linear-gradient(to top,var(--bg) 0%,transparent 100%);}
+  .p5-col{
+    flex:1;min-width:0;display:flex;flex-direction:column;gap:clamp(8px,1vw,14px);
+    position:relative;
+  }
+  .p5-col-inner{
+    display:flex;flex-direction:column;gap:clamp(8px,1vw,14px);
+    will-change:transform;
+  }
+  .p5-img-wrap{
+    position:relative;border-radius:12px;overflow:hidden;
+    background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);
+    cursor:pointer;transition:filter .4s,transform .4s,border-color .4s,box-shadow .4s;
+    filter:brightness(.6);
+  }
+  .p5-img-wrap:hover{
+    filter:brightness(1);transform:scale(1.05);z-index:20;
+    border-color:rgba(0,240,255,.5);
+    box-shadow:0 0 20px rgba(0,240,255,.2),0 0 40px rgba(0,240,255,.08);
+  }
+  .p5-img-wrap img{
+    width:100%;display:block;aspect-ratio:auto;
+    opacity:0;transition:opacity .4s ease;
+  }
+  .p5-img-wrap img.loaded{opacity:1;}
+  @keyframes p5Shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+  .p5-img-wrap.loading{
+    min-height:180px;
+    background:linear-gradient(90deg,rgba(255,255,255,.03) 25%,rgba(255,255,255,.08) 50%,rgba(255,255,255,.03) 75%);
+    background-size:200% 100%;
+    animation:p5Shimmer 1.5s ease infinite;
+  }
+  .p5-img-tag{
+    position:absolute;bottom:8px;left:8px;font-size:10px;color:rgba(0,240,255,.5);
+    font-family:'Space Grotesk',monospace;letter-spacing:.05em;
+    opacity:0;transition:opacity .3s;
+  }
+  .p5-img-wrap:hover .p5-img-tag{opacity:1;}
+  .p5-footer{
+    position:absolute;bottom:clamp(32px,5vh,64px);left:0;right:0;
+    text-align:center;z-index:20;opacity:0;transform:translateY(20px);
+  }
+  .p5-footer.visible{animation:p4FadeUp .8s cubic-bezier(.22,1,.36,1) .3s forwards;}
+  .p5-footer-text{
+    font-size:clamp(16px,1.8vw,28px);font-weight:500;color:#94A3B8;
+    letter-spacing:.02em;
+  }
+  .p5-cta{
+    display:inline-flex;align-items:center;gap:8px;margin-left:20px;
+    padding:12px 32px;border-radius:50px;font-size:clamp(14px,1.4vw,20px);font-weight:600;
+    color:#0B0F19;background:linear-gradient(135deg,#F4A261,#E879A0,#C084FC);
+    border:none;cursor:pointer;transition:transform .3s,box-shadow .3s;
+    text-decoration:none;
+  }
+  .p5-cta:hover{
+    transform:scale(1.06);
+    box-shadow:0 0 24px rgba(244,162,97,.4),0 0 60px rgba(192,132,252,.2);
+  }
+  @keyframes p5SlowScroll{
+    from{transform:translateY(0);}
+    to{transform:translateY(-50%);}
+  }
+  @keyframes p5SlowScrollUp{
+    from{transform:translateY(-50%);}
+    to{transform:translateY(0);}
+  }
+
+  /* Page dots */
+  .page-dots{
+    position:fixed;right:32px;top:50%;transform:translateY(-50%);z-index:100;
+    display:flex;flex-direction:column;gap:12px;
+  }
+  .page-dot{
+    width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.2);
+    border:1.5px solid rgba(255,255,255,.15);cursor:pointer;transition:all .3s;
+  }
+  .page-dot.active{background:#7cff36;border-color:#7cff36;box-shadow:0 0 8px rgba(124,255,54,.4);}
+
+
+</style>
+</head>
+<body>
+<div class="page-container" id="pageContainer">
+<div class="grid-bg"></div>
+<div class="flashlight" id="flashlight"></div>
+
+<div class="page" data-page="0">
+<div class="main">
+  <h1 class="hero-title">编排工作流，让内容<span class="accent">自动生成</span></h1>
+
+  <div class="tool-icons">
+    <div class="tool-icon fill-img"><img src="https://i.postimg.cc/QdFF0znf/comfy-cloud-icon-filled-256.webp" alt="ComfyUI"></div>
+    <div class="tool-icon fill-img"><img src="https://i.postimg.cc/wj110rbc/coze-icon-filled-256.webp" alt="Coze"></div>
+    <div class="tool-icon fill-bg"><img src="https://i.postimg.cc/VkJJDhH7/favicon-(1).png" alt="Tool3"></div>
+  </div>
+
+  <div class="cards-area" id="cardsArea">
+    <svg class="cards-svg" id="cardsSvg">
+      <defs>
+        <linearGradient id="beamGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#7cff36"/><stop offset="100%" stop-color="#7cff36"/>
+        </linearGradient>
+      </defs>
+    </svg>
+
+    <!-- Row 1: Design → the → Logic (horizontal) -->
+    <div class="card" data-idx="0" style="left:80px;top:120px;">
+      <div class="card-header"><span class="card-header-dot"></span>Text</div>
+      <div class="card-body"><span class="card-text">Design</span></div>
+      <span class="port port-right" id="p0out"></span>
+    </div>
+    <div class="card" data-idx="1" style="left:440px;top:120px;">
+      <div class="card-header"><span class="card-header-dot"></span>Text</div>
+      <div class="card-body"><span class="card-text">the</span></div>
+      <span class="port port-left" id="p1in"></span>
+      <span class="port port-right" id="p1out"></span>
+    </div>
+    <div class="card" data-idx="2" style="left:800px;top:120px;">
+      <div class="card-header"><span class="card-header-dot"></span>Text</div>
+      <div class="card-body"><span class="card-text">Logic</span></div>
+      <span class="port port-left" id="p2in"></span>
+      <span class="port port-right" id="p2out"></span>
+    </div>
+
+    <!-- Row 2: Empower (below-left, port-right like Design) and Infinite (below-right, port-left like Logic) -->
+    <div class="card" data-idx="3" style="left:120px;top:310px;">
+      <div class="card-header"><span class="card-header-dot"></span>Text</div>
+      <div class="card-body"><span class="card-text">Empower</span></div>
+      <span class="port port-left" id="p3in"></span>
+      <span class="port port-right" id="p3out"></span>
+    </div>
+    <div class="card finale" data-idx="4" style="left:740px;top:310px;">
+      <div class="card-header"><span class="card-header-dot"></span>Text</div>
+      <div class="card-body"><span class="card-text">Infinite</span></div>
+      <span class="port port-left" id="p4in"></span>
+      <div class="ripple" id="ripple"></div>
+    </div>
+  </div>
+</div>
+</div><!-- end page 0 -->
+
+<div class="page" data-page="1">
+  <div class="p2-content">
+    <div class="p2-header">
+      <h2 class="p2-title">超越对话框：为什么你需要<span class="accent">自动化工作流</span>？</h2>
+      <p class="p2-subtitle">直接使用大模型对话，就像雇佣了一个聪明的实习生，需要你不断指导；而搭建工作流，则是为你建立了一座全自动的 AI 兵工厂。</p>
+    </div>
+    <div class="p2-cards" id="p2Cards">
+      <div class="p2-card" data-card="0">
+        <div class="p2-card-inner">
+          <div class="p2-card-face p2-card-front">
+            <div class="p2-card-icon">🎲</div>
+            <div class="p2-card-title">从"随机抽卡"到...</div>
+            <div class="p2-card-label pain">❌ 痛点</div>
+            <div class="p2-card-desc">传统 AI 对话：结果像开盲盒，每次生成的质量可控性差。</div>
+            <div class="p2-card-hint">← 点击翻转 →</div>
+          </div>
+          <div class="p2-card-face p2-card-back">
+            <div class="p2-card-icon">🎯</div>
+            <div class="p2-card-title">绝对可控！</div>
+            <div class="p2-card-label gain">✅ 解决方案</div>
+            <div class="p2-card-desc">工作流赋能：将最优的提示词、模型参数固化在节点中。<strong>一次调优，次次完美</strong>，确保输出结果高度稳定与100%可复用。</div>
+          </div>
+        </div>
+      </div>
+      <div class="p2-card" data-card="1">
+        <div class="p2-card-inner">
+          <div class="p2-card-face p2-card-front">
+            <div class="p2-card-icon">🧑‍💻</div>
+            <div class="p2-card-title">从"提示词门槛"到...</div>
+            <div class="p2-card-label pain">❌ 痛点</div>
+            <div class="p2-card-desc">传统 AI 对话：需要学习复杂的底层逻辑，新手极易被劝退。</div>
+            <div class="p2-card-hint">← 点击翻转 →</div>
+          </div>
+          <div class="p2-card-face p2-card-back">
+            <div class="p2-card-icon">⚡</div>
+            <div class="p2-card-title">开箱即用！</div>
+            <div class="p2-card-label gain">✅ 解决方案</div>
+            <div class="p2-card-desc">工作流赋能：封装底层复杂逻辑，<strong>只为您保留最简单的输入</strong>。零基础新手也能一键输出大师级作品。</div>
+          </div>
+        </div>
+      </div>
+      <div class="p2-card" data-card="2">
+        <div class="p2-card-inner">
+          <div class="p2-card-face p2-card-front">
+            <div class="p2-card-icon">⌨️</div>
+            <div class="p2-card-title">从"手动重复"到...</div>
+            <div class="p2-card-label pain">❌ 痛点</div>
+            <div class="p2-card-desc">传统 AI 对话：生成一张图/一篇文章需要一次手动操作，无法应对海量需求。</div>
+            <div class="p2-card-hint">← 点击翻转 →</div>
+          </div>
+          <div class="p2-card-face p2-card-back">
+            <div class="p2-card-icon">🚀</div>
+            <div class="p2-card-title">批量量产！</div>
+            <div class="p2-card-label gain">✅ 解决方案</div>
+            <div class="p2-card-desc">工作流赋能：支持接入表格数据或批量指令，<strong>实现无人值守的自动化量产</strong>，将工作效率提升百倍。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Showcase panels -->
+      <div class="p2-showcase" id="p2Showcase">
+        <div class="p2-showcase-panel" data-panel="0">
+          <div class="showcase-gallery">
+            <div class="showcase-thumb" style="--t1:#7c3aed;--t2:#a78bfa;--dur:3.2s;--delay:0s"><div class="thumb-icon">🖼️</div><div class="thumb-bar colored"></div><div class="thumb-bar"></div></div>
+            <div class="showcase-thumb" style="--t1:#6366f1;--t2:#818cf8;--dur:2.8s;--delay:.4s"><div class="thumb-icon">🎨</div><div class="thumb-bar colored"></div><div class="thumb-bar"></div></div>
+            <div class="showcase-thumb" style="--t1:#8b5cf6;--t2:#c4b5fd;--dur:3.5s;--delay:.2s"><div class="thumb-icon">🖼️</div><div class="thumb-bar colored"></div><div class="thumb-bar"></div></div>
+            <div class="showcase-thumb" style="--t1:#a855f7;--t2:#d8b4fe;--dur:3s;--delay:.6s"><div class="thumb-icon">🎨</div><div class="thumb-bar colored"></div><div class="thumb-bar"></div></div>
+            <div class="showcase-thumb" style="--t1:#7c3aed;--t2:#c084fc;--dur:3.3s;--delay:.3s"><div class="thumb-icon">🖼️</div><div class="thumb-bar colored"></div><div class="thumb-bar"></div></div>
+            <div class="showcase-thumb" style="--t1:#6d28d9;--t2:#a78bfa;--dur:2.9s;--delay:.5s"><div class="thumb-icon">🎨</div><div class="thumb-bar colored"></div><div class="thumb-bar"></div></div>
+          </div>
+        </div>
+        <div class="p2-showcase-panel" data-panel="1">
+          <div class="showcase-prompt">
+            <div class="prompt-box"><span id="promptText"></span><span class="prompt-cursor"></span></div>
+            <div class="prompt-arrow">⬇</div>
+            <div class="prompt-result"><span class="result-icon">✨</span></div>
+          </div>
+        </div>
+        <div class="p2-showcase-panel" data-panel="2">
+          <div class="showcase-line">
+            <div class="line-track" id="lineTrack"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="p2-bottom">理论之上，眼见为实。<span>来看看这些工作流是如何在实际业务中运转的 ↓</span></div>
+  </div>
+</div><!-- end page 1 -->
+
+<div class="page" data-page="2">
+  <div class="p3-content">
+    <div class="p3-header">
+      <h2 class="p3-title">化繁为简：看工作流如何<span class="accent">接管你的业务</span></h2>
+      <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-top:clamp(10px,1.5vh,20px);">
+        <div class="p3-toggle">
+          <button class="p3-toggle-btn active" data-tab="img">生图工作流</button>
+          <button class="p3-toggle-btn" data-tab="txt">生文工作流</button>
+        </div>
+        <button class="p3-start-btn" id="p3StartBtn">▶ Start</button>
+      </div>
+    </div>
+    <div class="p3-canvas mode-img" id="p3Canvas">
+      <svg class="p3-svg" id="p3Svg"></svg>
+
+      <!-- === 生图工作流节点 === -->
+      <div class="p3-node" data-nidx="0" style="left:2%;top:8%;">
+        <div class="p3-node-header"><span class="hdr-dot"></span>Prompt</div>
+        <div class="p3-node-body">
+          <div class="node-text">帮我生成一张人车合影的艺术感写真图。</div>
+        </div>
+        <span class="p3-port p3-port-r" id="n0out"></span>
+      </div>
+      <div class="p3-node" data-nidx="1" style="left:2%;top:58%;">
+        <div class="p3-node-header"><span class="hdr-dot"></span>Car_info</div>
+        <div class="p3-node-body">
+          <div class="node-select">
+            <span class="fake-select">P7</span>
+            <span class="fake-select">新月银</span>
+          </div>
+        </div>
+        <span class="p3-port p3-port-r" id="n1out"></span>
+      </div>
+      <div class="p3-node" data-nidx="2" style="left:36%;top:2%;">
+        <div class="p3-node-header">
+          <span class="hdr-dot"></span>Model
+          <img class="hdr-icon" src="https://upload.wikimedia.org/wikipedia/commons/0/04/ChatGPT_logo.svg" alt="AI">
+        </div>
+        <div class="p3-node-body">
+          <div class="node-text" id="p3ModelText"></div>
+        </div>
+        <span class="p3-port p3-port-l" id="n2in"></span>
+        <span class="p3-port p3-port-r" id="n2out"></span>
+      </div>
+      <div class="p3-node" data-nidx="3" style="left:36%;top:55%;">
+        <div class="p3-node-header">
+          <span class="hdr-dot"></span>Database
+          <svg class="hdr-icon" viewBox="0 0 24 24" fill="currentColor"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <div class="p3-node-body">
+          <div class="node-img-reveal" id="p3DbWrap">
+            <img class="node-img" id="p3DbImg" src="https://paultan.org/image/2025/08/2025-Xpeng-P7-China-1.jpg" alt="P7参考图">
+          </div>
+        </div>
+        <span class="p3-port p3-port-l" id="n3in"></span>
+        <span class="p3-port p3-port-r" id="n3out"></span>
+      </div>
+      <div class="p3-node finale" data-nidx="4" style="left:72%;top:26%;">
+        <div class="p3-node-header"><span class="hdr-dot"></span>Output</div>
+        <div class="p3-node-body">
+          <div class="node-img-reveal" id="p3OutWrap">
+            <img class="node-img" id="p3OutImg" src="https://paultan.org/image/2025/08/2025-Xpeng-P7-China-1.jpg" alt="生成结果">
+          </div>
+        </div>
+        <span class="p3-port p3-port-l" id="n4in"></span>
+        <div class="p3-ripple" id="p3Ripple"></div>
+      </div>
+
+      <!-- === 生文工作流节点 === -->
+      <svg class="p3-txt-svg" id="p3TxtSvg"></svg>
+
+      <div class="p3-txt-node" data-tidx="0" style="left:2%;top:30%;">
+        <div class="p3-node-header"><span class="hdr-dot"></span>Prompt</div>
+        <div class="p3-node-body">
+          <div class="node-text" style="font-size:12px;font-weight:600;">国内油价上涨</div>
+        </div>
+        <span class="p3-port p3-port-r" id="t0out"></span>
+      </div>
+
+      <div class="p3-txt-node" data-tidx="1" style="left:28%;top:6%;">
+        <div class="p3-node-header"><span class="hdr-dot"></span>News</div>
+        <div class="p3-node-body">
+          <div class="node-text" id="p3NewsBody" style="position:relative;min-height:20px;transition:height .3s ease;"></div>
+        </div>
+        <span class="p3-port p3-port-l" id="t1in"></span>
+        <span class="p3-port p3-port-r" id="t1out"></span>
+      </div>
+
+      <div class="p3-txt-node" data-tidx="2" style="left:28%;top:56%;">
+        <div class="p3-node-header"><span class="hdr-dot"></span>Persona</div>
+        <div class="p3-node-body">
+          <div class="node-text" id="p3PersonaText"></div>
+        </div>
+        <span class="p3-port p3-port-l" id="t2in"></span>
+        <span class="p3-port p3-port-r" id="t2out"></span>
+      </div>
+
+      <div class="p3-txt-node" data-tidx="3" style="left:56%;top:30%;">
+        <div class="p3-node-header">
+          <span class="hdr-dot"></span>Refine
+          <img class="hdr-icon" src="https://upload.wikimedia.org/wikipedia/commons/0/04/ChatGPT_logo.svg" alt="AI">
+        </div>
+        <div class="p3-node-body">
+          <div class="node-text" id="p3RefineText"></div>
+        </div>
+        <span class="p3-port p3-port-l" id="t3in"></span>
+        <span class="p3-port p3-port-r" id="t3out"></span>
+      </div>
+
+      <div class="p3-txt-node finale" data-tidx="4" style="left:80%;top:16%;width:300px;">
+        <div class="p3-node-header"><span class="hdr-dot"></span>Output</div>
+        <div class="p3-node-body">
+          <div class="txt-output-text" id="p3OutputText"></div>
+        </div>
+        <span class="p3-port p3-port-l" id="t4in"></span>
+        <div class="p3-ripple" id="p3TxtRipple"></div>
+      </div>
+    </div>
+  </div>
+</div><!-- end page 2 -->
+
+<div class="page" data-page="3">
+  <div class="p4-content">
+    <div class="p4-header" id="p4Header">
+      <h2 class="p4-title">用<span class="accent">数据</span>，证明自动化的力量</h2>
+      <p class="p4-subtitle">当底层逻辑被封装，生产力将以指数级爆发。这不是未来的构想，而是正在发生的现实。</p>
+    </div>
+    <div class="p4-grid" id="p4Grid">
+      <div class="p4-col" data-col="0">
+        <div class="p4-number" data-target="2000" data-suffix="+">0</div>
+        <div class="p4-label">爆款文案生成</div>
+        <div class="p4-desc">精准还原专属人设，告别千篇一律的味道。全自动输出高质量文案，将数小时的案头创作缩短至几秒。</div>
+      </div>
+      <div class="p4-col" data-col="1">
+        <div class="p4-number" data-target="1200" data-suffix="+">0</div>
+        <div class="p4-label">营销图片生成</div>
+        <div class="p4-desc">告别反复抽卡，结合知识库实现主体精准控制。零门槛量产高质量营销车图，让产能成倍释放。</div>
+      </div>
+      <div class="p4-col" data-col="2">
+        <div class="p4-number" data-target="1500" data-suffix="+">0</div>
+        <div class="p4-label">赋能用户</div>
+        <div class="p4-desc">完美封装复杂逻辑，零基础新手也能开箱即用。将自动化无缝接入日常业务，轻松实现全链路的降本增效。</div>
+      </div>
+    </div>
+  </div>
+</div><!-- end page 3 -->
+
+<div class="page" data-page="4">
+  <div class="p5-content">
+    <div class="p5-header" id="p5Header">
+      <h2 class="p5-title">输出终端：<span class="accent">无限视觉资产</span></h2>
+    </div>
+    <div class="p5-waterfall" id="p5Waterfall"></div>
+    <div class="p5-footer" id="p5Footer">
+      <span class="p5-footer-text">不要只做这 1000 人的旁观者。</span>
+      <a class="p5-cta" href="#">立即接入工作流 ⚡</a>
+    </div>
+  </div>
+</div><!-- end page 4 -->
+
+<div class="page-dots">
+  <div class="page-dot active" data-goto="0"></div>
+  <div class="page-dot" data-goto="1"></div>
+  <div class="page-dot" data-goto="2"></div>
+  <div class="page-dot" data-goto="3"></div>
+  <div class="page-dot" data-goto="4"></div>
+</div>
+
+</div><!-- end page-container -->
+
+<script>
+(function(){
+  const svg=document.getElementById('cardsSvg');
+  const cards=document.querySelectorAll('.card');
+  const flashlight=document.getElementById('flashlight');
+  const rippleEl=document.getElementById('ripple');
+
+  // Design→the, the→Logic (horizontal top), Empower→the, the→Infinite (horizontal bottom)
+  const connections=[
+    ['p0out','p1in'],    // Design → the (right→left)
+    ['p1out','p2in'],    // the → Logic (right→left)
+    ['p2out','p3in'],    // Logic → Empower (right→left)
+    ['p3out','p1in'],    // Empower → the (right→left)
+    ['p1out','p4in']     // the → Infinite (right→left)
+  ];
+
+  const paths=[],trails=[],beams=[];
+  const offsets=new Map();
+  cards.forEach(c=>offsets.set(c,{x:0,y:0}));
+
+  function getPC(el){
+    const r=el.getBoundingClientRect(),sr=svg.getBoundingClientRect();
+    return{x:r.left+r.width/2-sr.left,y:r.top+r.height/2-sr.top};
+  }
+
+  function buildPath(a,b){
+    const dx=b.x-a.x, dy=b.y-a.y, adx=Math.abs(dx), ady=Math.abs(dy);
+    // Use horizontal cubic bezier with vertical offset for smooth curves
+    const cx=adx*0.5||60;
+    return`M${a.x},${a.y} C${a.x+cx},${a.y} ${b.x-cx},${b.y} ${b.x},${b.y}`;
+  }
+
+  function initLines(){
+    connections.forEach((_,i)=>{
+      ['conn-path','trail-path','beam-path'].forEach(cls=>{
+        const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+        p.classList.add(cls);svg.appendChild(p);
+        if(cls==='conn-path')paths.push(p);
+        else if(cls==='trail-path')trails.push(p);
+        else beams.push(p);
+      });
+    });
+    updatePaths();
+  }
+
+  function updatePaths(){
+    connections.forEach((conn,i)=>{
+      const a=getPC(document.getElementById(conn[0]));
+      const b=getPC(document.getElementById(conn[1]));
+      const d=buildPath(a,b,i);
+      [paths[i],trails[i],beams[i]].forEach(p=>p.setAttribute('d',d));
+    });
+  }
+
+  // Drag
+  let dc=null,sx=0,sy=0,ox=0,oy=0;
+  cards.forEach(card=>{
+    card.addEventListener('mousedown',e=>{
+      e.preventDefault();dc=card;
+      const off=offsets.get(card);sx=e.clientX;sy=e.clientY;ox=off.x;oy=off.y;
+      card.classList.add('dragging');
+    });
+  });
+  const gridBg=document.querySelector('.grid-bg');
+  document.addEventListener('mousemove',e=>{
+    const mx=e.clientX+'px',my=e.clientY+'px';
+    flashlight.style.setProperty('--mx',mx);
+    flashlight.style.setProperty('--my',my);
+    gridBg.style.setProperty('--mx',mx);
+    gridBg.style.setProperty('--my',my);
+    if(!dc)return;
+    const off=offsets.get(dc);
+    off.x=ox+(e.clientX-sx);off.y=oy+(e.clientY-sy);
+    dc.style.transform=`translate(${off.x}px,${off.y}px)`;
+    updatePaths();
+  });
+  document.addEventListener('mouseup',()=>{if(dc){dc.classList.remove('dragging');dc=null;}});
+
+  // Beam animation
+  const TOTAL=connections.length,SPEED=0.0005,PAUSE=350;
+  let st={seg:0,prog:0,pausing:false,timer:0},lastT=0;
+
+  // Card activation order: 0=Design, 1=the, 2=Logic, 3=Empower, 4=Infinite
+  // seg 0: Design→the activates Design(0), the(1)
+  // seg 1: the→Logic activates Logic(2)
+  // seg 2: Logic→Empower activates Empower(3)
+  // seg 3: Empower→the (already active)
+  // seg 4: the→Infinite activates Infinite(4)
+  // Cards activated when beam STARTS on this segment
+  const segStartActivation=[[0],[],[],[],[]];
+  // Cards activated when beam ARRIVES (prog>=1) on this segment
+  const segArriveActivation=[[1],[2],[3],[],[4]];
+
+  function activateCard(ci,breathe){
+    const c=cards[ci];
+    c.classList.add('active');
+    if(breathe){c.classList.remove('breathe');void c.offsetWidth;c.classList.add('breathe');}
+  }
+  function activateSegStart(seg){
+    segStartActivation[seg].forEach(ci=>activateCard(ci,true));
+  }
+  function activateSegArrive(seg){
+    segArriveActivation[seg].forEach(ci=>activateCard(ci,true));
+  }
+  function deactivateAll(){
+    cards.forEach(c=>c.classList.remove('active','breathe'));
+    paths.forEach(p=>p.classList.remove('active'));
+    trails.forEach(t=>{t.style.opacity='0';});
+  }
+  function triggerFinale(){rippleEl.classList.remove('burst');void rippleEl.offsetWidth;rippleEl.classList.add('burst');}
+
+  function animate(ts){
+    if(!lastT)lastT=ts;const dt=ts-lastT;lastT=ts;const s=st;
+    if(s.pausing){
+      s.timer-=dt;
+      if(s.timer<=0){s.pausing=false;s.seg++;s.prog=0;
+        if(s.seg>=TOTAL){triggerFinale();
+          setTimeout(()=>{deactivateAll();beams.forEach(b=>b.style.opacity='0');s.seg=0;s.prog=0;s.pausing=false;},2400);
+          requestAnimationFrame(animate);return;
+        }
+      }
+      requestAnimationFrame(animate);return;
+    }
+    if(s.seg<TOTAL){
+      if(s.prog===0) activateSegStart(s.seg);
+      s.prog+=SPEED*dt;
+      const trail=trails[s.seg];
+      const len=trails[s.seg].getTotalLength?trails[s.seg].getTotalLength():300;
+      trail.style.opacity='1';trail.style.strokeDasharray=`${s.prog*len} ${len}`;trail.style.strokeDashoffset=0;
+      if(s.prog>=1){
+        s.prog=1;trail.style.strokeDasharray=`${len} 0`;
+        paths[s.seg].classList.add('active');
+        activateSegArrive(s.seg);
+        s.pausing=true;s.timer=PAUSE;
+        if(s.seg===TOTAL-1){triggerFinale();
+          setTimeout(()=>{deactivateAll();beams.forEach(b=>b.style.opacity='0');s.seg=0;s.prog=0;s.pausing=false;},2400);
+        }
+      }
+    }
+    requestAnimationFrame(animate);
+  }
+
+  function init(){initLines();requestAnimationFrame(animate);}
+  window.addEventListener('resize',updatePaths);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
+  else requestAnimationFrame(init);
+})();
+
+// === Page 2 card interaction (removed duplicate, see unified version below) ===
+
+// === Page switching ===
+(function(){
+  const container=document.getElementById('pageContainer');
+  const dots=document.querySelectorAll('.page-dot');
+  let currentPage=0,switching=false;
+  const TOTAL_PAGES=5;
+
+  function goTo(p){
+    if(p===currentPage||switching||p<0||p>=TOTAL_PAGES)return;
+    
+    switching=true;currentPage=p;
+    container.classList.remove('at-page-1','at-page-2','at-page-3','at-page-4');
+    if(p===1)container.classList.add('at-page-1');
+    if(p===2)container.classList.add('at-page-2');
+    if(p===3)container.classList.add('at-page-3');
+    if(p===4)container.classList.add('at-page-4');
+    dots.forEach((d,i)=>d.classList.toggle('active',i===p));
+    if(p===3)triggerP4Anim();
+    if(p===4)triggerP5Anim();
+    setTimeout(()=>switching=false,900);
+  }
+
+  // Wheel
+  let wheelCd=0;
+  window.addEventListener('wheel',e=>{
+    const now=Date.now();if(now-wheelCd<1000)return;
+    if(e.deltaY>30){goTo(currentPage+1);wheelCd=now;}
+    else if(e.deltaY<-30){goTo(currentPage-1);wheelCd=now;}
+  },{passive:true});
+
+  // Keyboard
+  window.addEventListener('keydown',e=>{
+    if(e.key==='ArrowDown'||e.key==='PageDown'){e.preventDefault();goTo(currentPage+1);}
+    else if(e.key==='ArrowUp'||e.key==='PageUp'){e.preventDefault();goTo(currentPage-1);}
+  });
+
+  // Dots click
+  dots.forEach(d=>d.addEventListener('click',()=>goTo(+d.dataset.goto)));
+})();
+
+
+
+// === Page 2 card interaction ===
+(function(){
+  const cardsWrap=document.getElementById('p2Cards');
+  const p2cards=cardsWrap.querySelectorAll('.p2-card');
+  const showcase=document.getElementById('p2Showcase');
+  const panels=showcase.querySelectorAll('.p2-showcase-panel');
+  let activeIdx=-1,typingTimer=null,resetting=false,animating=false;
+
+  // 计算卡片需要位移到最左侧位置的偏移量
+  function calcSlideOffset(card){
+    const cardRect=card.getBoundingClientRect();
+    const wrapRect=cardsWrap.getBoundingClientRect();
+    return wrapRect.left - cardRect.left;
+  }
+
+  // 记录初始状态下每张卡片的原始位置（用于计算 showcase 区域）
+  let cardOrigRects=[];
+  function snapshotCardRects(){
+    cardOrigRects=Array.from(p2cards).map(c=>c.getBoundingClientRect());
+  }
+  // 首次快照 + resize 时更新
+  requestAnimationFrame(snapshotCardRects);
+  window.addEventListener('resize',snapshotCardRects);
+
+  function reset(){
+    if(resetting||animating)return;
+    resetting=true;
+    animating=true;
+    const prev=activeIdx;
+    activeIdx=-1;
+    clearInterval(typingTimer);
+    // 先翻回正面
+    p2cards.forEach(c=>c.classList.remove('flipped'));
+    panels.forEach(p=>p.classList.remove('active'));
+    cardsWrap.classList.remove('has-active');
+    showcase.style.left='';
+
+    const prevCard=p2cards[prev];
+    // 等翻转动画完成后，再做位移回原位
+    setTimeout(()=>{
+      // 恢复对应卡片的位移时长
+      const moveDurations=[0, 0.35, 0.48];
+      const dur=moveDurations[prev]||0.48;
+
+      // 第一张卡片无位移，直接恢复
+      if(prev===0){
+        p2cards.forEach((c,i)=>{
+          c.style.visibility='';c.style.pointerEvents='';c.style.transform='';c.style.transition='';
+          c.classList.remove('animating');
+        });
+        resetting=false;animating=false;
+        return;
+      }
+
+      prevCard.style.transition='transform '+dur+'s cubic-bezier(.4,.0,.2,1),opacity .4s ease,flex .4s ease';
+      prevCard.style.transform='';
+      function onSlideBack(e){
+        if(e.propertyName!=='transform')return;
+        prevCard.removeEventListener('transitionend',onSlideBack);
+        // 位移回原位后，恢复显示其他卡片
+        p2cards.forEach((c,i)=>{
+          c.style.visibility='';
+          c.style.pointerEvents='';
+          c.classList.remove('animating');
+          if(i!==prev){
+            c.classList.remove('returning');
+            void c.offsetWidth;
+            c.classList.add('returning');
+            c.style.animationDelay=(i<prev?i:i-1)*0.07+'s';
+            c.addEventListener('animationend',function h(){c.classList.remove('returning');c.style.animationDelay='';c.removeEventListener('animationend',h);});
+          }
+        });
+        resetting=false;
+        animating=false;
+      }
+      prevCard.addEventListener('transitionend',onSlideBack);
+      // 安全兜底
+      const backDur=moveDurations[prev]||0.48;
+      setTimeout(()=>{if(resetting){resetting=false;animating=false;p2cards.forEach(c=>{c.style.visibility='';c.style.pointerEvents='';c.style.transform='';c.style.transition='';c.classList.remove('animating');});}},backDur?backDur*1000+300:150);
+    },500);
+  }
+
+  p2cards.forEach(card=>{
+    card.addEventListener('click',()=>{
+      if(resetting||animating)return;
+      const idx=+card.dataset.card;
+      if(activeIdx===idx){reset();return;}
+      clearInterval(typingTimer);
+      activeIdx=idx;
+      animating=true;
+      // 先停止 hover 动效，强制 reflow 确保 animation 完全移除后再设置 transform
+      p2cards.forEach(c=>c.classList.add('animating'));
+      void card.offsetWidth;
+
+      // 用 visibility 隐藏其他卡片，保持 flex 布局不变，避免尺寸变形
+      p2cards.forEach((c,i)=>{
+        if(i!==idx){c.style.visibility='hidden';c.style.pointerEvents='none';}
+      });
+
+      // 根据卡片索引设置不同的位移动效时长：距离越远时长越长，但差异更平滑
+      const slideDurs=[0, 0.35, 0.48];
+      const dur=slideDurs[idx]||0.48;
+      const offset=calcSlideOffset(card);
+
+      // 第一张卡片无需位移，直接翻转
+      if(idx===0||Math.abs(offset)<2){
+        showShowcase();
+        return;
+      }
+
+      card.style.transition='transform '+dur+'s cubic-bezier(.4,.0,.2,1),opacity .4s ease';
+      card.style.transform='translateX('+offset+'px)';
+
+      function showShowcase(){
+        // 计算 showcase 的 left：活动卡片右边缘 + gap
+        const cardRect=card.getBoundingClientRect();
+        const wrapRect=cardsWrap.getBoundingClientRect();
+        const gap=parseFloat(getComputedStyle(cardsWrap).gap)||16;
+        showcase.style.left=(cardRect.right-wrapRect.left+gap)+'px';
+        card.classList.add('flipped');
+        cardsWrap.classList.add('has-active');
+        panels.forEach(p=>p.classList.remove('active'));
+        const panel=showcase.querySelector('[data-panel="'+idx+'"]');
+        if(panel){panel.classList.add('active');if(idx===1)startTyping();if(idx===2)buildLine();}
+        animating=false;
+      }
+
+      function onSlideEnd(e){
+        if(e.propertyName!=='transform')return;
+        card.removeEventListener('transitionend',onSlideEnd);
+        showShowcase();
+      }
+      card.addEventListener('transitionend',onSlideEnd);
+      // 安全兜底：duration 为 0 或 offset≈0 时 transitionend 不触发
+      setTimeout(()=>{if(animating&&activeIdx===idx){card.removeEventListener('transitionend',onSlideEnd);showShowcase();}},dur?dur*1000+100:50);
+    });
+  });
+
+  // Panel 1: typing prompt
+  const promptEl=document.getElementById('promptText');
+  const promptStr='一只赛博朋克风格的猫咪，霓虹灯光，未来城市背景，8K超高清';
+  function startTyping(){
+    promptEl.textContent='';let i=0;
+    typingTimer=setInterval(()=>{
+      if(i<promptStr.length){promptEl.textContent+=promptStr[i];i++;}
+      else{clearInterval(typingTimer);setTimeout(()=>{if(activeIdx===1)startTyping();},2000);}
+    },60);
+  }
+
+  // Panel 2: assembly line
+  const lineTrack=document.getElementById('lineTrack');
+  const lineItems=[
+    {icon:'🖼️',bg:'#1e1b4b'},{icon:'🎨',bg:'#1a1040'},{icon:'📐',bg:'#172554'},
+    {icon:'✨',bg:'#14532d'},{icon:'🌈',bg:'#431407'},{icon:'💎',bg:'#1e1b4b'},
+    {icon:'🖼️',bg:'#1a1040'},{icon:'🎨',bg:'#172554'},{icon:'📐',bg:'#14532d'},
+    {icon:'✨',bg:'#431407'},{icon:'🌈',bg:'#1e1b4b'},{icon:'💎',bg:'#1a1040'},
+  ];
+  function buildLine(){
+    if(lineTrack.children.length)return;
+    lineItems.forEach(it=>{
+      const d=document.createElement('div');d.className='line-item';
+      d.style.background=it.bg;
+      d.innerHTML='<div class="line-icon">'+it.icon+'</div><div class="line-label">成品</div>';
+      lineTrack.appendChild(d);
+    });
+  }
+})();
+
+// === Page 3: Node Canvas ===
+(function(){
+  const svg=document.getElementById('p3Svg');
+  const canvas=document.getElementById('p3Canvas');
+  const nodes=canvas.querySelectorAll('.p3-node');
+  const ripple=document.getElementById('p3Ripple');
+  const modelText=document.getElementById('p3ModelText');
+  const startBtn=document.getElementById('p3StartBtn');
+  const dbImg=document.getElementById('p3DbImg');
+  const outImg=document.getElementById('p3OutImg');
+  const toggleBtns=document.querySelectorAll('.p3-toggle-btn');
+
+  let currentTab='img'; // 'img' or 'txt'
+
+  // === Tab 切换 ===
+  toggleBtns.forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const tab=btn.dataset.tab;
+      if(tab===currentTab)return;
+      // 停止当前动画
+      if(currentTab==='img'&&imgRunning){stopImgAnim();}
+      if(currentTab==='img'&&imgFinished){imgDeactivateAll();resetModelText();resetDbImg();resetOutImg();imgFinished=false;}
+      if(currentTab==='txt'&&txtRunning){stopTxtAnim();}
+      if(currentTab==='txt'&&txtFinished){txtDeactivateAll();resetTxtTexts();txtFinished=false;}
+      currentTab=tab;
+      startBtn.classList.remove('running','replay');startBtn.textContent='▶ Start';
+      toggleBtns.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      canvas.classList.toggle('mode-img',tab==='img');
+      canvas.classList.toggle('mode-txt',tab==='txt');
+      // 重绘连线
+      requestAnimationFrame(()=>{
+        if(tab==='img')updateImgPaths();
+        else updateTxtPaths();
+      });
+    });
+  });
+
+  // =============================================
+  // 生图工作流（原有逻辑）
+  // =============================================
+  const imgConns=[
+    ['n0out','n2in'],['n1out','n3in'],['n0out','n3in'],['n1out','n2in'],
+    ['n2out','n4in'],['n3out','n4in']
+  ];
+  const imgPaths=[],imgTrails=[];
+  const imgOffsets=new Map();
+  nodes.forEach(n=>imgOffsets.set(n,{x:0,y:0}));
+
+  function getPC(el,svgEl){
+    const r=el.getBoundingClientRect(),sr=svgEl.getBoundingClientRect();
+    return{x:r.left+r.width/2-sr.left,y:r.top+r.height/2-sr.top};
+  }
+  function buildCurve(a,b){
+    const cx=Math.abs(b.x-a.x)*0.5||60;
+    return'M'+a.x+','+a.y+' C'+(a.x+cx)+','+a.y+' '+(b.x-cx)+','+b.y+' '+b.x+','+b.y;
+  }
+  function initImgLines(){
+    imgConns.forEach(()=>{
+      ['p3-conn','p3-trail'].forEach(cls=>{
+        const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+        p.classList.add(cls);svg.appendChild(p);
+        if(cls==='p3-conn')imgPaths.push(p);else imgTrails.push(p);
+      });
+    });
+    updateImgPaths();
+  }
+  function updateImgPaths(){
+    imgConns.forEach((c,i)=>{
+      const a=getPC(document.getElementById(c[0]),svg);
+      const b=getPC(document.getElementById(c[1]),svg);
+      const d=buildCurve(a,b);
+      imgPaths[i].setAttribute('d',d);imgTrails[i].setAttribute('d',d);
+    });
+  }
+
+  // 拖拽（生图）
+  let dc=null,sx=0,sy=0,ox=0,oy=0;
+  nodes.forEach(node=>{
+    node.addEventListener('mousedown',e=>{
+      e.preventDefault();dc=node;
+      const off=imgOffsets.get(node);sx=e.clientX;sy=e.clientY;ox=off.x;oy=off.y;
+      node.classList.add('dragging');
+    });
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dc)return;
+    const off=imgOffsets.get(dc);
+    off.x=ox+(e.clientX-sx);off.y=oy+(e.clientY-sy);
+    dc.style.transform='translate('+off.x+'px,'+off.y+'px)';
+    updateImgPaths();
+  });
+  document.addEventListener('mouseup',()=>{if(dc){dc.classList.remove('dragging');dc=null;}});
+
+  const SPEED=0.00064,PAUSE=400;
+  let imgRunning=false;
+  let imgCompleted=false;
+
+  function activateNode(n,breathe){
+    n.classList.add('active');
+    if(breathe){n.classList.remove('breathe');void n.offsetWidth;n.classList.add('breathe');}
+  }
+  function imgDeactivateAll(){
+    nodes.forEach(n=>n.classList.remove('active','breathe'));
+    imgPaths.forEach(p=>p.classList.remove('active'));
+    imgTrails.forEach(t=>{t.style.opacity='0';});
+  }
+  function triggerFinale(){ripple.classList.remove('burst');void ripple.offsetWidth;ripple.classList.add('burst');}
+
+  const origText='帮我生成一张人车合影的艺术感写真图。';
+  const optimText='傍晚夕阳下的都市街道旁，一辆小鹏P7新月银静止停放在道路右侧路边停车位，三分法构图，电影级光影，8K超高清...';
+
+  function runModelTextAnim(cb){
+    modelText.innerHTML='';let i=0;
+    const typeTimer=setInterval(()=>{
+      if(i<origText.length){
+        const s=document.createElement('span');
+        s.className='node-text-char';s.textContent=origText[i];
+        s.style.opacity='0';modelText.appendChild(s);
+        requestAnimationFrame(()=>s.style.opacity='1');i++;
+      }else{
+        clearInterval(typeTimer);
+        setTimeout(()=>replaceCharsInPlace(cb),600);
+      }
+    },50);
+  }
+  function replaceCharsInPlace(cb){
+    const origSpans=Array.from(modelText.querySelectorAll('.node-text-char'));
+    let i=0;
+    const timer=setInterval(()=>{
+      if(i<optimText.length){
+        if(i<origSpans.length){
+          origSpans[i].classList.add('shimmer');origSpans[i].textContent=optimText[i];
+          const sp=origSpans[i];setTimeout(()=>sp.classList.replace('shimmer','done'),150);
+        }else{
+          const s=document.createElement('span');s.className='node-text-char shimmer';
+          s.textContent=optimText[i];modelText.appendChild(s);
+          setTimeout(()=>s.classList.replace('shimmer','done'),150);
+        }i++;
+      }else{
+        clearInterval(timer);
+        for(let j=optimText.length;j<origSpans.length;j++){
+          origSpans[j].style.transition='opacity .2s';origSpans[j].style.opacity='0';
+          setTimeout(()=>origSpans[j].remove(),200);
+        }
+        setTimeout(cb,300);
+      }
+    },40);
+  }
+  function resetModelText(){modelText.innerHTML='';modelText.style.opacity='1';}
+  function resetDbImg(){dbImg.classList.remove('revealed');dbImg.style.opacity='0';dbImg.style.transform='scale(.85)';dbImg.style.filter='blur(8px)';}
+  function runDbImgAnim(cb){dbImg.classList.add('revealed');setTimeout(cb,1100);}
+  function resetOutImg(){outImg.classList.remove('revealed');outImg.style.opacity='0';outImg.style.transform='scale(.85)';outImg.style.filter='blur(8px)';}
+  function runOutImgAnim(cb){outImg.classList.add('revealed');setTimeout(cb,1100);}
+
+  let imgFinished=false;
+  function stopImgAnim(){
+    imgRunning=false;imgFinished=false;imgDeactivateAll();resetModelText();resetDbImg();resetOutImg();
+    startBtn.classList.remove('running','replay');startBtn.textContent='▶ Start';
+  }
+
+  function runImgAnimation(){
+    if(imgRunning)return;imgRunning=true;
+    startBtn.classList.add('running');startBtn.textContent='⏳ Running...';
+    imgDeactivateAll();resetModelText();resetDbImg();resetOutImg();
+
+    const beamSteps=[
+      {segs:[0,3],arriveNodes:[2],anim:'model'},
+      {segs:[2,1],arriveNodes:[3],anim:'db'},
+      {segs:[4,5],arriveNodes:[4],anim:'out'}
+    ];
+    let stepIdx=-1,prog=0,lastT=0,phase='activate';
+
+    function tick(ts){
+      if(!imgRunning){lastT=0;return;}
+      if(!lastT)lastT=ts;const dt=ts-lastT;lastT=ts;
+
+      if(phase==='activate'){
+        activateNode(nodes[0],true);activateNode(nodes[1],true);
+        phase='pause';
+        setTimeout(()=>{phase='beam';stepIdx=0;prog=0;lastT=0;requestAnimationFrame(tick);},PAUSE);
+        return;
+      }
+      if(phase==='beam'){
+        if(stepIdx>=beamSteps.length){
+          triggerFinale();
+          setTimeout(()=>{imgRunning=false;imgFinished=true;startBtn.classList.remove('running');startBtn.classList.add('replay');startBtn.textContent='🔄 Replay';},2000);
+          return;
+        }
+        const step=beamSteps[stepIdx];prog+=SPEED*dt;
+        step.segs.forEach(si=>{
+          const trail=imgTrails[si],len=trail.getTotalLength?trail.getTotalLength():300;
+          trail.style.opacity='1';trail.style.strokeDasharray=prog*len+' '+len;trail.style.strokeDashoffset='0';
+        });
+        if(prog>=1){
+          prog=1;
+          step.segs.forEach(si=>{const len=imgTrails[si].getTotalLength?imgTrails[si].getTotalLength():300;imgTrails[si].style.strokeDasharray=len+' 0';imgPaths[si].classList.add('active');});
+          step.arriveNodes.forEach(i=>activateNode(nodes[i],true));
+          phase='nodeAnim';
+          const onDone=()=>{stepIdx++;prog=0;lastT=0;phase='beam';requestAnimationFrame(tick);};
+          if(step.anim==='model')setTimeout(()=>runModelTextAnim(onDone),300);
+          else if(step.anim==='db')setTimeout(()=>runDbImgAnim(onDone),300);
+          else if(step.anim==='out')setTimeout(()=>runOutImgAnim(onDone),300);
+          return;
+        }
+        requestAnimationFrame(tick);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // =============================================
+  // 生文工作流
+  // =============================================
+  const txtSvg=document.getElementById('p3TxtSvg');
+  const txtNodes=canvas.querySelectorAll('.p3-txt-node');
+  const txtRipple=document.getElementById('p3TxtRipple');
+  const personaText=document.getElementById('p3PersonaText');
+  const refineText=document.getElementById('p3RefineText');
+  const outputText=document.getElementById('p3OutputText');
+
+  const txtConns=[
+    ['t0out','t1in'],['t0out','t2in'],  // Prompt→News, Prompt→Persona
+    ['t1out','t3in'],['t2out','t3in'],  // News→Refine, Persona→Refine
+    ['t3out','t4in']                     // Refine→Output
+  ];
+  const txtPaths=[],txtTrails=[];
+  const txtOffsets=new Map();
+  txtNodes.forEach(n=>txtOffsets.set(n,{x:0,y:0}));
+
+  function initTxtLines(){
+    txtConns.forEach(()=>{
+      ['p3-conn','p3-trail'].forEach(cls=>{
+        const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+        p.classList.add(cls);txtSvg.appendChild(p);
+        if(cls==='p3-conn')txtPaths.push(p);else txtTrails.push(p);
+      });
+    });
+    updateTxtPaths();
+  }
+  function updateTxtPaths(){
+    txtConns.forEach((c,i)=>{
+      const aEl=document.getElementById(c[0]),bEl=document.getElementById(c[1]);
+      if(!aEl||!bEl)return;
+      const a=getPC(aEl,txtSvg),b=getPC(bEl,txtSvg);
+      const d=buildCurve(a,b);
+      txtPaths[i].setAttribute('d',d);txtTrails[i].setAttribute('d',d);
+    });
+  }
+
+  // 拖拽（生文）
+  let tdc=null,tsx=0,tsy=0,tox=0,toy=0;
+  txtNodes.forEach(node=>{
+    node.addEventListener('mousedown',e=>{
+      e.preventDefault();tdc=node;
+      const off=txtOffsets.get(node);tsx=e.clientX;tsy=e.clientY;tox=off.x;toy=off.y;
+      node.classList.add('dragging');
+    });
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!tdc)return;
+    const off=txtOffsets.get(tdc);
+    off.x=tox+(e.clientX-tsx);off.y=toy+(e.clientY-tsy);
+    tdc.style.transform='translate('+off.x+'px,'+off.y+'px)';
+    updateTxtPaths();
+  });
+  document.addEventListener('mouseup',()=>{if(tdc){tdc.classList.remove('dragging');tdc=null;}});
+
+  let txtRunning=false;
+
+  function txtDeactivateAll(){
+    txtNodes.forEach(n=>n.classList.remove('active','breathe'));
+    txtPaths.forEach(p=>p.classList.remove('active'));
+    txtTrails.forEach(t=>{t.style.opacity='0';});
+  }
+  function txtTriggerFinale(){txtRipple.classList.remove('burst');void txtRipple.offsetWidth;txtRipple.classList.add('burst');}
+
+  const personaStr='90 后女性汽车生活主理人，28-32 岁，base 上海 / 杭州 / 成都等新一线城市，汽车工程师转型自媒体';
+  const outputStr='这轮油价上涨，别再怪"加油站想涨就涨"。根子在中东冲突把霍尔木兹海峡这条"全球油阀"拧紧了：3月9日前后国际油价剧烈过山车，WTI一度冲到116美元上方、布油逼近120美元，随后又因G7拟释放最多4亿桶储备而回落——但高位震荡没变...';
+
+  const newsBody=document.getElementById('p3NewsBody');
+  const newsHeadlines=[
+    '国内油价迎来年内第五次上调',
+    '92号汽油价格突破8元大关',
+    '多地加油站排起长队',
+    '国际原油价格持续走高'
+  ];
+
+  // News 新闻标题闪现替换动效（类似生图 Model 卡片的逐字替换）
+  function runNewsAnim(cb){
+    newsBody.innerHTML='';
+    let hi=0;
+    // 先逐字打出第一条标题
+    function typeFirst(){
+      const first=newsHeadlines[0];
+      let i=0;
+      const t=setInterval(()=>{
+        if(i<first.length){
+          const s=document.createElement('span');
+          s.className='node-text-char';s.textContent=first[i];
+          s.style.opacity='0';newsBody.appendChild(s);
+          requestAnimationFrame(()=>s.style.opacity='1');i++;
+        }else{clearInterval(t);hi=1;setTimeout(replaceNext,600);}
+      },50);
+    }
+    // 逐字闪现替换为下一条标题
+    function replaceNext(){
+      if(hi>=newsHeadlines.length){
+        replaceWith('...',()=>{updateTxtPaths();setTimeout(cb,300);});
+        return;
+      }
+      replaceWith(newsHeadlines[hi],()=>{hi++;updateTxtPaths();setTimeout(replaceNext,500);});
+    }
+    function replaceWith(target,done){
+      const spans=Array.from(newsBody.querySelectorAll('.node-text-char'));
+      const maxLen=Math.max(target.length,spans.length);
+      // 生成随机顺序索引
+      const indices=Array.from({length:maxLen},(_,i)=>i);
+      for(let j=indices.length-1;j>0;j--){const k=Math.floor(Math.random()*(j+1));[indices[j],indices[k]]=[indices[k],indices[j]];}
+      let done_count=0;
+      indices.forEach((idx,order)=>{
+        setTimeout(()=>{
+          if(idx<target.length){
+            if(idx<spans.length){
+              spans[idx].classList.remove('done');spans[idx].classList.add('shimmer');spans[idx].textContent=target[idx];
+              const sp=spans[idx];setTimeout(()=>sp.classList.replace('shimmer','done'),150);
+            }else{
+              const s=document.createElement('span');s.className='node-text-char shimmer';
+              s.textContent=target[idx];newsBody.appendChild(s);
+              setTimeout(()=>s.classList.replace('shimmer','done'),150);
+            }
+          }else if(idx<spans.length){
+            spans[idx].style.transition='opacity .2s';spans[idx].style.opacity='0';
+            setTimeout(()=>spans[idx].remove(),200);
+          }
+          done_count++;
+          if(done_count>=maxLen)setTimeout(()=>{updateTxtPaths();done();},250);
+        },order*40);
+      });
+    }
+    typeFirst();
+  }
+
+  // 人设加载：闪现文字
+  function runPersonaAnim(cb){
+    personaText.innerHTML='';
+    let i=0;
+    const timer=setInterval(()=>{
+      if(i<personaStr.length){
+        const s=document.createElement('span');
+        s.className='node-text-char shimmer';s.textContent=personaStr[i];
+        personaText.appendChild(s);
+        setTimeout(()=>s.classList.replace('shimmer','done'),150);
+        i++;
+      }else{clearInterval(timer);setTimeout(cb,300);}
+    },30);
+  }
+
+  // Refine：随机逐字闪现替换（类似卡片2 News）
+  function runRefineAnim(cb){
+    refineText.innerHTML='';
+    const phrases=['分析热点趋势...','匹配人设风格...','重组内容逻辑...','优化表达方式...','生成最终文案...'];
+    let pi=0;
+    // 先逐字打出第一条
+    function typeFirst(){
+      const first=phrases[0];
+      let i=0;
+      const t=setInterval(()=>{
+        if(i<first.length){
+          const s=document.createElement('span');
+          s.className='node-text-char';s.textContent=first[i];
+          s.style.opacity='0';refineText.appendChild(s);
+          requestAnimationFrame(()=>s.style.opacity='1');i++;
+        }else{clearInterval(t);pi=1;setTimeout(replaceNext,600);}
+      },50);
+    }
+    function replaceNext(){
+      if(pi>=phrases.length){setTimeout(cb,300);return;}
+      replaceWith(phrases[pi],()=>{pi++;updateTxtPaths();setTimeout(replaceNext,500);});
+    }
+    function replaceWith(target,done){
+      const spans=Array.from(refineText.querySelectorAll('.node-text-char'));
+      const maxLen=Math.max(target.length,spans.length);
+      const indices=Array.from({length:maxLen},(_,i)=>i);
+      for(let j=indices.length-1;j>0;j--){const k=Math.floor(Math.random()*(j+1));[indices[j],indices[k]]=[indices[k],indices[j]];}
+      let doneCount=0;
+      indices.forEach((idx,order)=>{
+        setTimeout(()=>{
+          if(idx<target.length){
+            if(idx<spans.length){
+              spans[idx].classList.remove('done');spans[idx].classList.add('shimmer');spans[idx].textContent=target[idx];
+              const sp=spans[idx];setTimeout(()=>sp.classList.replace('shimmer','done'),150);
+            }else{
+              const s=document.createElement('span');s.className='node-text-char shimmer';
+              s.textContent=target[idx];refineText.appendChild(s);
+              setTimeout(()=>s.classList.replace('shimmer','done'),150);
+            }
+          }else if(idx<spans.length){
+            spans[idx].style.transition='opacity .2s';spans[idx].style.opacity='0';
+            setTimeout(()=>spans[idx].remove(),200);
+          }
+          doneCount++;
+          if(doneCount>=maxLen)setTimeout(()=>{updateTxtPaths();done();},250);
+        },order*40);
+      });
+    }
+    typeFirst();
+  }
+
+  // Output：打字机效果
+  function runOutputAnim(cb){
+    outputText.innerHTML='';
+    let i=0;
+    const cursor=document.createElement('span');
+    cursor.className='txt-output-cursor';
+    const timer=setInterval(()=>{
+      if(i<outputStr.length){
+        outputText.insertBefore(document.createTextNode(outputStr[i]),cursor);
+        if(!cursor.parentNode)outputText.appendChild(cursor);
+        i++;
+      }else{
+        clearInterval(timer);
+        if(cursor.parentNode)cursor.remove();
+        setTimeout(cb,300);
+      }
+    },20);
+    outputText.appendChild(cursor);
+  }
+
+  function resetTxtTexts(){
+    newsBody.innerHTML='';personaText.innerHTML='';refineText.innerHTML='';outputText.innerHTML='';
+  }
+
+  let txtFinished=false;
+  function stopTxtAnim(){
+    txtRunning=false;txtFinished=false;txtDeactivateAll();resetTxtTexts();
+    startBtn.classList.remove('running','replay');startBtn.textContent='▶ Start';
+  }
+
+  function runTxtAnimation(){
+    if(txtRunning)return;txtRunning=true;
+    startBtn.classList.add('running');startBtn.textContent='⏳ Running...';
+    txtDeactivateAll();resetTxtTexts();
+
+    // 动画步骤：
+    // 1. 点亮节点1(Prompt)
+    // 2. 光束→节点2(News)+节点3(Persona)同时点亮，节点3执行人设加载动效
+    // 3. 光束→节点4(Refine)点亮，执行闪烁变换动效
+    // 4. 光束→节点5(Output)点亮，执行打字机输出
+
+    const beamSteps=[
+      {segs:[0,1],arriveNodes:[1,2],anim:'newsAndPersona'},  // Prompt→News+Persona
+      {segs:[2,3],arriveNodes:[3],anim:'refine'},       // News+Persona→Refine
+      {segs:[4],arriveNodes:[4],anim:'output'}           // Refine→Output
+    ];
+    let stepIdx=-1,prog=0,lastT=0,phase='activate';
+
+    function tick(ts){
+      if(!txtRunning){lastT=0;return;}
+      if(!lastT)lastT=ts;const dt=ts-lastT;lastT=ts;
+
+      if(phase==='activate'){
+        activateNode(txtNodes[0],true);
+        phase='pause';
+        setTimeout(()=>{phase='beam';stepIdx=0;prog=0;lastT=0;requestAnimationFrame(tick);},PAUSE);
+        return;
+      }
+      if(phase==='beam'){
+        if(stepIdx>=beamSteps.length){
+          txtTriggerFinale();
+          setTimeout(()=>{txtRunning=false;txtFinished=true;startBtn.classList.remove('running');startBtn.classList.add('replay');startBtn.textContent='🔄 Replay';},2000);
+          return;
+        }
+        const step=beamSteps[stepIdx];prog+=SPEED*dt;
+        step.segs.forEach(si=>{
+          const trail=txtTrails[si],len=trail.getTotalLength?trail.getTotalLength():300;
+          trail.style.opacity='1';trail.style.strokeDasharray=prog*len+' '+len;trail.style.strokeDashoffset='0';
+        });
+        if(prog>=1){
+          prog=1;
+          step.segs.forEach(si=>{const len=txtTrails[si].getTotalLength?txtTrails[si].getTotalLength():300;txtTrails[si].style.strokeDasharray=len+' 0';txtPaths[si].classList.add('active');});
+          step.arriveNodes.forEach(i=>activateNode(txtNodes[i],true));
+          phase='nodeAnim';
+          const onDone=()=>{stepIdx++;prog=0;lastT=0;phase='beam';requestAnimationFrame(tick);};
+          if(step.anim==='newsAndPersona'){
+            let done=0;const both=()=>{done++;if(done>=2)onDone();};
+            setTimeout(()=>{runNewsAnim(both);runPersonaAnim(both);},300);
+          }
+          else if(step.anim==='refine')setTimeout(()=>runRefineAnim(onDone),300);
+          else if(step.anim==='output')setTimeout(()=>runOutputAnim(onDone),300);
+          return;
+        }
+        requestAnimationFrame(tick);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // === Start 按钮统一入口 ===
+  startBtn.addEventListener('click',()=>{
+    if(currentTab==='img'){
+      if(imgFinished){imgDeactivateAll();resetModelText();resetDbImg();resetOutImg();imgFinished=false;imgRunning=false;startBtn.classList.remove('replay');setTimeout(()=>runImgAnimation(),100);return;}
+      runImgAnimation();
+    }else{
+      if(txtFinished){txtDeactivateAll();resetTxtTexts();txtFinished=false;txtRunning=false;startBtn.classList.remove('replay');setTimeout(()=>runTxtAnimation(),100);return;}
+      runTxtAnimation();
+    }
+  });
+
+  function init(){
+    initImgLines();initTxtLines();
+    const ro=new ResizeObserver(()=>{updateImgPaths();updateTxtPaths();});
+    nodes.forEach(n=>ro.observe(n));
+    txtNodes.forEach(n=>ro.observe(n));
+  }
+  window.addEventListener('resize',()=>{updateImgPaths();updateTxtPaths();});
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
+  else requestAnimationFrame(init);
+})();
+
+// === Page 4: Data Counter Animation ===
+var p4Triggered=false;
+function triggerP4Anim(){
+  if(p4Triggered)return;p4Triggered=true;
+  const header=document.getElementById('p4Header');
+  const cols=document.querySelectorAll('.p4-col');
+  // Header fade in
+  header.classList.add('visible');
+  // Staggered columns
+  cols.forEach((col,i)=>{
+    setTimeout(()=>{
+      col.classList.add('visible');
+      // Start counter
+      const numEl=col.querySelector('.p4-number');
+      const target=+numEl.dataset.target;
+      const suffix=numEl.dataset.suffix||'';
+      animateCounter(numEl,target,suffix);
+    },400+i*200);
+  });
+}
+function animateCounter(el,target,suffix){
+  const duration=1800;
+  const start=performance.now();
+  function tick(now){
+    const t=Math.min((now-start)/duration,1);
+    // easeOutExpo
+    const ease=t===1?1:1-Math.pow(2,-10*t);
+    const val=Math.round(ease*target);
+    el.textContent=val.toLocaleString()+suffix;
+    if(t<1)requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// === Page 5: Waterfall Scroll Animation ===
+var p5Triggered=false;
+var p5LastColCount=0;
+// 20张图片库
+var p5ImgPool=[
+  {src:'https://picsum.photos/400/520?random=1',tag:'Render_01'},
+  {src:'https://picsum.photos/400/360?random=2',tag:'Render_02'},
+  {src:'https://picsum.photos/400/480?random=3',tag:'Output_Success'},
+  {src:'https://picsum.photos/400/400?random=4',tag:'Render_04'},
+  {src:'https://picsum.photos/400/440?random=5',tag:'Gen_05'},
+  {src:'https://picsum.photos/400/560?random=6',tag:'Render_06'},
+  {src:'https://picsum.photos/400/380?random=7',tag:'Output_07'},
+  {src:'https://picsum.photos/400/500?random=8',tag:'Gen_08'},
+  {src:'https://picsum.photos/400/500?random=9',tag:'Render_09'},
+  {src:'https://picsum.photos/400/420?random=10',tag:'Output_10'},
+  {src:'https://picsum.photos/400/540?random=11',tag:'Gen_11'},
+  {src:'https://picsum.photos/400/380?random=12',tag:'Render_12'},
+  {src:'https://picsum.photos/400/460?random=13',tag:'Render_13'},
+  {src:'https://picsum.photos/400/520?random=14',tag:'Gen_14'},
+  {src:'https://picsum.photos/400/400?random=15',tag:'Output_15'},
+  {src:'https://picsum.photos/400/480?random=16',tag:'Render_16'},
+  {src:'https://picsum.photos/400/360?random=17',tag:'Gen_17'},
+  {src:'https://picsum.photos/400/540?random=18',tag:'Output_18'},
+  {src:'https://picsum.photos/400/440?random=19',tag:'Render_19'},
+  {src:'https://picsum.photos/400/500?random=20',tag:'Gen_20'}
+];
+
+// 每列的随机序列缓存，key=列索引，value=打乱后的图片索引数组
+var p5ColSequences={};
+
+// Fisher-Yates 洗牌，生成 [0..n-1] 的随机排列
+function shuffleRange(n){
+  var a=[];for(var i=0;i<n;i++)a.push(i);
+  for(var j=a.length-1;j>0;j--){var k=Math.floor(Math.random()*(j+1));var t=a[j];a[j]=a[k];a[k]=t;}
+  return a;
+}
+
+// 获取或创建某列的随机序列（已有的列保持不变）
+function getColSequence(colIdx){
+  if(!p5ColSequences[colIdx]){
+    p5ColSequences[colIdx]=shuffleRange(p5ImgPool.length);
+  }
+  return p5ColSequences[colIdx];
+}
+
+function buildP5Cols(){
+  var wf=document.getElementById('p5Waterfall');
+  var w=wf.clientWidth;
+  var colCount=Math.max(3,Math.floor(w/220));
+  if(colCount===p5LastColCount)return;
+  var prevColCount=p5LastColCount;
+  p5LastColCount=colCount;
+  wf.innerHTML='';
+
+  for(var c=0;c<colCount;c++){
+    var seq=getColSequence(c);
+    var col=document.createElement('div');col.className='p5-col';
+    var inner=document.createElement('div');inner.className='p5-col-inner';
+    inner.dataset.dir=(c%2===0)?'down':'up';
+    // 按该列的随机序列排列所有20张图
+    var items='';
+    for(var r=0;r<seq.length;r++){
+      var img=p5ImgPool[seq[r]];
+      items+='<div class="p5-img-wrap loading"><img src="'+img.src+'" alt="asset" onload="this.classList.add(\'loaded\');this.parentNode.classList.remove(\'loading\')"><span class="p5-img-tag">['+img.tag+']</span></div>';
+    }
+    // 复制一份实现无缝循环
+    inner.innerHTML=items+items;
+    col.appendChild(inner);
+    wf.appendChild(col);
+  }
+  // 启动滚动动画
+  wf.querySelectorAll('.p5-col-inner').forEach(function(inner){
+    var dir=inner.dataset.dir;
+    var speed=(35+Math.random()*15)*1.43;
+    inner.style.animation=(dir==='down'?'p5SlowScroll':'p5SlowScrollUp')+' '+speed+'s linear infinite';
+  });
+}
+
+function triggerP5Anim(){
+  buildP5Cols();
+  if(!p5Triggered){
+    p5Triggered=true;
+    var header=document.getElementById('p5Header');
+    var footer=document.getElementById('p5Footer');
+    header.classList.add('visible');
+    footer.classList.add('visible');
+  }
+}
+function pauseP5Anim(){}
+var p5ResizeTimer;
+window.addEventListener('resize',function(){
+  clearTimeout(p5ResizeTimer);
+  p5ResizeTimer=setTimeout(function(){if(p5Triggered)buildP5Cols();},200);
+});
+</script>
+</body>
+</html>
